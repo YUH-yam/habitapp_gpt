@@ -35,6 +35,13 @@ try {
   assert.equal(savedState.habits.length, 1);
   assert.equal(savedState.habits[0].name, "日記を1行書く");
 
+  await page.getByLabel("未実行理由").selectOption("tired");
+  await page.getByRole("button", { name: "今日は無理" }).click();
+  const missedState = await page.evaluate(() => JSON.parse(localStorage.getItem("habitapp-gpt-state-v1")));
+  assert.equal(missedState.logs.length, 1);
+  assert.equal(missedState.logs[0].status, "missed");
+  assert.equal(missedState.logs[0].reason, "tired");
+
   await page.getByRole("button", { name: "最小版", exact: true }).click();
   await page.screenshot({ path: "/private/tmp/habitapp-mobile-after-log.png", fullPage: false });
 

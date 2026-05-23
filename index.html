@@ -165,6 +165,8 @@
               <p id="ifThenPreview">既存ルーティンを選ぶと表示されます。</p>
             </div>
 
+            <div class="difficulty-preview" id="difficultyPreview" aria-live="polite"></div>
+
             <div class="form-actions">
               <button class="secondary-button" id="cancelEditButton" type="button" hidden>取消</button>
               <button class="primary-button" id="saveHabitButton" type="submit">保存</button>
@@ -221,6 +223,12 @@
             </button>
             <button class="secondary-button full-width" id="exportButton" type="button">
               データを書き出す
+            </button>
+            <button class="secondary-button full-width" id="exportCsvButton" type="button">
+              CSVを書き出す
+            </button>
+            <button class="secondary-button full-width" id="exportMarkdownButton" type="button">
+              週次レビューを書き出す
             </button>
             <label class="file-import">
               データを読み込む

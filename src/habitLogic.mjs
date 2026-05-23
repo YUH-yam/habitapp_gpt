@@ -3,10 +3,24 @@ export const DAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 export const STATUS_LABELS = {
   done: "完了",
   tiny: "最小版",
-  later: "後で",
-  missed: "休む",
+  later: "明日",
+  missed: "今日は無理",
   pending: "未記録",
 };
+
+export const MISSED_REASONS = [
+  { value: "forgot", label: "忘れていた" },
+  { value: "time", label: "時間がなかった" },
+  { value: "tired", label: "疲れていた" },
+  { value: "mood", label: "気分が乗らなかった" },
+  { value: "environment", label: "場所・環境が合わなかった" },
+  { value: "too_heavy", label: "目標が重すぎた" },
+  { value: "low_value", label: "必要性を感じなかった" },
+];
+
+export const REASON_LABELS = Object.fromEntries(
+  MISSED_REASONS.map((reason) => [reason.value, reason.label]),
+);
 
 export function toISODate(date = new Date()) {
   const year = date.getFullYear();
@@ -53,6 +67,7 @@ export function normalizeHabit(raw, today = toISODate()) {
     days: [...new Set(days)].sort((a, b) => a - b),
     createdAt: raw.createdAt || today,
     paused: Boolean(raw.paused),
+    graduated: Boolean(raw.graduated),
   };
 }
 
@@ -70,7 +85,7 @@ export function buildIfThen(habit) {
 }
 
 export function isHabitScheduled(habit, isoDate) {
-  if (!habit || habit.paused) return false;
+  if (!habit || habit.paused || habit.graduated) return false;
   if (habit.createdAt && isoDate < habit.createdAt) return false;
   return habit.days.includes(dayIndexFromISO(isoDate));
 }
@@ -166,6 +181,179 @@ export function calculateStats(habits, logs, options = {}) {
   };
 }
 
+export function calculateRecoveryMetrics(habits, logs, options = {}) {
+  const endIso = options.endIso || toISODate();
+  const dayCount = options.dayCount || 30;
+  const dates = getRangeDates(endIso, dayCount);
+  let interruptions = 0;
+  let recovered = 0;
+  let recoveryDaysTotal = 0;
+  const reasonCounts = {};
+
+  for (const log of logs) {
+    if (log.reason) {
+      reasonCounts[log.reason] = (reasonCounts[log.reason] || 0) + 1;
+    }
+  }
+
+  for (const habit of habits) {
+    for (const date of dates) {
+      if (!isHabitScheduled(habit, date)) continue;
+      const log = getLogForDate(logs, habit.id, date);
+      const interrupted = log?.status === "missed" || log?.status === "later";
+      if (!interrupted) continue;
+
+      interruptions += 1;
+      for (let offset = 1; offset <= 2; offset += 1) {
+        const nextDate = addDaysISO(date, offset);
+        const nextLog = getLogForDate(logs, habit.id, nextDate);
+        if (nextLog?.status === "done" || nextLog?.status === "tiny") {
+          recovered += 1;
+          recoveryDaysTotal += offset;
+          break;
+        }
+      }
+    }
+  }
+
+  const topReasons = Object.entries(reasonCounts)
+    .map(([value, count]) => ({ value, label: REASON_LABELS[value] || value, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+
+  return {
+    interruptions,
+    recovered,
+    recoveryRate: interruptions > 0 ? recovered / interruptions : 0,
+    recoveryPercent: clampPercent(interruptions > 0 ? (recovered / interruptions) * 100 : 0),
+    averageRecoveryDays: recovered > 0 ? Number((recoveryDaysTotal / recovered).toFixed(1)) : null,
+    topReasons,
+  };
+}
+
+export function assessHabitDifficulty(habit) {
+  const reasons = [];
+  const improvements = [];
+  let score = 0;
+
+  const targetMinutes = estimateMinutes(habit.targetAction);
+  const tinyMinutes = estimateMinutes(habit.tinyAction);
+
+  if (targetMinutes >= 15) {
+    score += 3;
+    reasons.push("通常版が長めです。");
+    improvements.push("通常版を10分以内に下げる。");
+  } else if (targetMinutes >= 6) {
+    score += 1;
+    reasons.push("通常版は少し重めです。");
+    improvements.push("最初の2週間は通常版を半分にする。");
+  }
+
+  if (!habit.anchor || isVagueText(habit.anchor)) {
+    score += 2;
+    reasons.push("開始条件が曖昧です。");
+    improvements.push("既存ルーティンを「朝食のあと」のように具体化する。");
+  } else {
+    reasons.push("既存ルーティンとの接続は良好です。");
+  }
+
+  if (!habit.tinyAction || tinyMinutes >= 3 || habit.tinyAction.length > 24) {
+    score += 2;
+    reasons.push("最小版がまだ少し重い可能性があります。");
+    improvements.push("最小版を10〜30秒で終わる行動にする。");
+  } else {
+    reasons.push("最小版は小さく設定されています。");
+  }
+
+  if (!habit.fallback || isVagueText(habit.fallback)) {
+    score += 1;
+    reasons.push("できない日の代替が弱いです。");
+    improvements.push("未実行時の戻り方を1文で決める。");
+  }
+
+  if (habit.days.length >= 7) {
+    score += 2;
+    reasons.push("毎日設定は負荷が高くなりやすいです。");
+    improvements.push("開始2週間は週3〜5日にする。");
+  } else if (habit.days.length >= 5) {
+    score += 1;
+    reasons.push("曜日数はやや多めです。");
+  }
+
+  if (habit.reminderWindow === "なし") {
+    score += 1;
+    reasons.push("通知窓が未設定です。");
+    improvements.push("最初だけ通知窓を設定する。");
+  }
+
+  const level = score >= 6 ? "high" : score >= 3 ? "medium" : "low";
+  const label = level === "high" ? "高め" : level === "medium" ? "中くらい" : "低め";
+  const loadScore = clampPercent(100 - score * 12);
+  const automationScore = clampPercent((habit.anchor && !isVagueText(habit.anchor) ? 45 : 15)
+    + (habit.tinyAction && tinyMinutes < 3 ? 30 : 5)
+    + (habit.fallback && !isVagueText(habit.fallback) ? 15 : 0)
+    + Math.max(0, 10 - Math.abs(habit.days.length - 5) * 2));
+
+  return {
+    score,
+    level,
+    label,
+    loadScore,
+    automationScore,
+    reasons,
+    improvements: improvements.length > 0 ? improvements : ["この設計のまま1週間試して、記録から調整する。"],
+  };
+}
+
+export function getHabitLifecycle(habit, logs, todayIso = toISODate()) {
+  if (habit.graduated) return "卒業";
+  if (habit.paused) return "一時停止";
+
+  const stats30 = calculateStats([habit], logs, {
+    endIso: todayIso,
+    dayCount: 30,
+    includeTodayAsEligible: false,
+  });
+  const stats14 = calculateStats([habit], logs, {
+    endIso: todayIso,
+    dayCount: 14,
+    includeTodayAsEligible: false,
+  });
+
+  if (stats30.eligible === 0) return "設計中";
+  if (stats30.eligible < 4) return "開始直後";
+  if (stats14.eligible >= 5 && stats14.consistency < 0.4) return "停滞";
+  if (stats30.eligible >= 20 && stats30.consistency >= 0.85) return "安定";
+  if (stats30.eligible >= 12 && stats30.consistency >= 0.7) return "定着中";
+  return "開始直後";
+}
+
+export function buildCoachComment(habits, logs, todayIso = toISODate()) {
+  if (habits.length === 0) {
+    return "まずは1つだけ設計してください。複数を同時に始めるより、最初の1つを軽く作るほうが安全です。";
+  }
+
+  const stats7 = calculateStats(habits, logs, {
+    endIso: todayIso,
+    dayCount: 7,
+    includeTodayAsEligible: false,
+  });
+  const metrics = calculateRecoveryMetrics(habits, logs, { endIso: todayIso, dayCount: 30 });
+
+  if (stats7.eligible >= 3 && stats7.consistency >= 0.8) {
+    return "かなり安定しています。次の1週間も同じ設計で続けてください。";
+  }
+
+  if (stats7.eligible >= 3 && stats7.consistency >= 0.4) {
+    return "継続の土台はできています。未実行の日の理由を見て、通知時間か最小版を調整しましょう。";
+  }
+
+  if (metrics.interruptions >= 3 && metrics.recovered === 0) {
+    return "中断が続いています。今日は通常版を捨てて、最小版だけで復帰してください。";
+  }
+
+  return "今の習慣は少し重い可能性があります。通常版を半分にして、最小版を10秒で終わる行動にしましょう。";
+}
+
 export function getRecoveryCandidates(habits, logs, todayIso = toISODate()) {
   const yesterday = addDaysISO(todayIso, -1);
   return habits.filter((habit) => {
@@ -201,6 +389,7 @@ export function buildSuggestions(habits, logs, todayIso = toISODate()) {
   });
   const recovery = getRecoveryCandidates(habits, logs, todayIso);
   const bestDay = getBestDay(stats);
+  const metrics = calculateRecoveryMetrics(habits, logs, { endIso: todayIso, dayCount: 30 });
   const suggestions = [];
 
   if (recovery.length > 0) {
@@ -219,6 +408,15 @@ export function buildSuggestions(habits, logs, todayIso = toISODate()) {
     suggestions.push(`${bestDay.day}曜は実行しやすい傾向があります。次週も同じ前後の予定に寄せてください。`);
   }
 
+  const topReason = metrics.topReasons[0];
+  if (topReason?.value === "tired") {
+    suggestions.push("疲れが主な障害です。通知窓を前倒しし、通常版を軽くしてください。");
+  } else if (topReason?.value === "forgot") {
+    suggestions.push("忘れが主な障害です。既存ルーティンとの紐づけか通知窓を見直してください。");
+  } else if (topReason?.value === "too_heavy") {
+    suggestions.push("重さが主な障害です。最小版をさらに小さくするのが先です。");
+  }
+
   return suggestions;
 }
 
@@ -231,4 +429,19 @@ export function validateHabitInput(input) {
   if (!input.fallback?.trim()) errors.push("できない日の代替が必要です。");
   if (!Array.isArray(input.days) || input.days.length === 0) errors.push("曜日を1つ以上選んでください。");
   return errors;
+}
+
+function estimateMinutes(text = "") {
+  const normalized = String(text);
+  const hourMatch = normalized.match(/(\d+(?:\.\d+)?)\s*時間/);
+  if (hourMatch) return Number(hourMatch[1]) * 60;
+  const minuteMatch = normalized.match(/(\d+(?:\.\d+)?)\s*分/);
+  if (minuteMatch) return Number(minuteMatch[1]);
+  const secondMatch = normalized.match(/(\d+(?:\.\d+)?)\s*秒/);
+  if (secondMatch) return Number(secondMatch[1]) / 60;
+  return 1;
+}
+
+function isVagueText(text = "") {
+  return /できるとき|時間がある|余裕|気が向いた|適当|どこか|いつか/.test(String(text));
 }

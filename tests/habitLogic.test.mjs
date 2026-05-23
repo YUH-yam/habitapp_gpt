@@ -2,9 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   addDaysISO,
+  assessHabitDifficulty,
+  buildCoachComment,
   buildIfThen,
   buildSuggestions,
+  calculateRecoveryMetrics,
   calculateStats,
+  getHabitLifecycle,
   getRecoveryCandidates,
   normalizeHabit,
   upsertLog,
@@ -88,4 +92,59 @@ test("validateHabitInput catches missing required fields and weekday selection",
 
 test("addDaysISO handles month boundaries", () => {
   assert.equal(addDaysISO("2026-05-31", 1), "2026-06-01");
+});
+
+test("assessHabitDifficulty flags vague and heavy habits", () => {
+  const hardHabit = normalizeHabit({
+    id: "hard",
+    name: "運動する",
+    targetAction: "筋トレを30分する",
+    tinyAction: "筋トレを5分する",
+    anchor: "時間があるとき",
+    fallback: "できるときにやる",
+    days: [0, 1, 2, 3, 4, 5, 6],
+  });
+  const result = assessHabitDifficulty(hardHabit);
+  assert.equal(result.level, "high");
+  assert.ok(result.improvements.some((item) => item.includes("10")));
+});
+
+test("calculateRecoveryMetrics counts explicit interruption recovery and reasons", () => {
+  const logs = [
+    { habitId: "h1", date: "2026-05-18", status: "missed", reason: "tired" },
+    { habitId: "h1", date: "2026-05-19", status: "tiny" },
+    { habitId: "h1", date: "2026-05-20", status: "later", reason: "forgot" },
+    { habitId: "h1", date: "2026-05-22", status: "done" },
+  ];
+  const metrics = calculateRecoveryMetrics([baseHabit], logs, {
+    endIso: "2026-05-22",
+    dayCount: 5,
+  });
+  assert.equal(metrics.interruptions, 2);
+  assert.equal(metrics.recovered, 2);
+  assert.equal(metrics.topReasons[0].count, 1);
+});
+
+test("getHabitLifecycle moves stable habits into stable state", () => {
+  const stableHabit = normalizeHabit({
+    ...baseHabit,
+    id: "stable",
+    createdAt: "2026-04-20",
+    days: [0, 1, 2, 3, 4, 5, 6],
+  });
+  const logs = [];
+  for (let offset = 0; offset < 28; offset += 1) {
+    logs.push({ habitId: "stable", date: addDaysISO("2026-04-26", offset), status: "done" });
+  }
+  assert.equal(getHabitLifecycle(stableHabit, logs, "2026-05-23"), "安定");
+});
+
+test("buildCoachComment reacts to strong weekly consistency", () => {
+  const logs = [
+    { habitId: "h1", date: "2026-05-18", status: "done" },
+    { habitId: "h1", date: "2026-05-19", status: "done" },
+    { habitId: "h1", date: "2026-05-20", status: "tiny" },
+    { habitId: "h1", date: "2026-05-21", status: "done" },
+  ];
+  assert.ok(buildCoachComment([baseHabit], logs, "2026-05-22").includes("安定"));
 });
