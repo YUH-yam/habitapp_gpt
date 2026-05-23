@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="つづく設計">
+  <rect width="128" height="128" rx="28" fill="#f7f7fa"/>
+  <path d="M36 80c0-25 13-44 34-54 4 14 1 26-8 36 14-5 25-2 34 7-11 19-28 29-51 29-8 0-9-10-9-18Z" fill="#2f9f73"/>
+  <path d="M39 85c23-6 39-21 50-45" fill="none" stroke="#ffffff" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="38" cy="92" r="12" fill="#386fa4"/>
+  <path d="M34 92h8M38 88v8" stroke="#ffffff" stroke-width="4" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f7fa" />
+    <meta
+      name="description"
+      content="三日坊主を防ぐための、最小版・If-Then・復帰導線つき習慣化支援PWA"
+    />
+    <title>つづく設計</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">習慣化サポート</p>
+          <h1>つづく設計</h1>
+        </div>
+        <button class="icon-button" id="installButton" type="button" hidden aria-label="ホーム画面に追加">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
+            <path d="M5 15v4h14v-4" />
+          </svg>
+        </button>
+      </header>
+
+      <main class="main-content" id="mainContent">
+        <section class="screen is-active" id="screen-today" aria-labelledby="todayTitle">
+          <div id="todayRoot"></div>
+        </section>
+
+        <section class="screen" id="screen-create" aria-labelledby="createTitle">
+          <div class="section-heading">
+            <p class="eyebrow">If-Then プラン</p>
+            <h2 id="createTitle">習慣を設計</h2>
+          </div>
+
+          <form class="habit-form" id="habitForm">
+            <input type="hidden" name="habitId" id="habitId" />
+
+            <label>
+              習慣名
+              <input
+                id="habitName"
+                name="name"
+                type="text"
+                autocomplete="off"
+                maxlength="32"
+                required
+                placeholder="例: 英語を1分読む"
+              />
+            </label>
+
+            <label>
+              目的
+              <input
+                id="habitWhy"
+                name="why"
+                type="text"
+                maxlength="48"
+                placeholder="例: 海外の会議で自然に話す"
+              />
+            </label>
+
+            <div class="field-row">
+              <label>
+                カテゴリ
+                <select id="habitCategory" name="category">
+                  <option value="health">健康</option>
+                  <option value="learning">学習</option>
+                  <option value="work">仕事</option>
+                  <option value="mind">整える</option>
+                  <option value="home">暮らし</option>
+                </select>
+              </label>
+
+              <label>
+                通知窓
+                <select id="habitReminder" name="reminderWindow">
+                  <option value="朝">朝</option>
+                  <option value="昼">昼</option>
+                  <option value="夕方">夕方</option>
+                  <option value="夜">夜</option>
+                  <option value="なし">なし</option>
+                </select>
+              </label>
+            </div>
+
+            <label>
+              通常版
+              <input
+                id="habitTarget"
+                name="targetAction"
+                type="text"
+                maxlength="48"
+                required
+                placeholder="例: 英語の記事を5分読む"
+              />
+            </label>
+
+            <label>
+              最小版
+              <input
+                id="habitTiny"
+                name="tinyAction"
+                type="text"
+                maxlength="48"
+                required
+                placeholder="例: 1文だけ読む"
+              />
+            </label>
+
+            <label>
+              既存ルーティン
+              <input
+                id="habitAnchor"
+                name="anchor"
+                type="text"
+                list="anchorOptions"
+                maxlength="48"
+                required
+                placeholder="例: 朝食のあと"
+              />
+            </label>
+            <datalist id="anchorOptions">
+              <option value="朝食のあと"></option>
+              <option value="通勤電車に乗ったら"></option>
+              <option value="昼休みに入ったら"></option>
+              <option value="帰宅して靴を脱いだら"></option>
+              <option value="シャワーのあと"></option>
+              <option value="寝る準備を始めたら"></option>
+            </datalist>
+
+            <label>
+              できない日の代替
+              <input
+                id="habitFallback"
+                name="fallback"
+                type="text"
+                maxlength="64"
+                required
+                placeholder="例: 最小版だけ実行して明日の同じタイミングで戻る"
+              />
+            </label>
+
+            <fieldset class="weekday-field">
+              <legend>実行する曜日</legend>
+              <div class="weekday-picker" id="weekdayPicker" aria-label="実行する曜日">
+                <button type="button" class="weekday-chip" data-day="1">月</button>
+                <button type="button" class="weekday-chip" data-day="2">火</button>
+                <button type="button" class="weekday-chip" data-day="3">水</button>
+                <button type="button" class="weekday-chip" data-day="4">木</button>
+                <button type="button" class="weekday-chip" data-day="5">金</button>
+                <button type="button" class="weekday-chip" data-day="6">土</button>
+                <button type="button" class="weekday-chip" data-day="0">日</button>
+              </div>
+            </fieldset>
+
+            <div class="ifthen-preview" aria-live="polite">
+              <span>プラン</span>
+              <p id="ifThenPreview">既存ルーティンを選ぶと表示されます。</p>
+            </div>
+
+            <div class="form-actions">
+              <button class="secondary-button" id="cancelEditButton" type="button" hidden>取消</button>
+              <button class="primary-button" id="saveHabitButton" type="submit">保存</button>
+            </div>
+          </form>
+
+          <div class="template-strip" id="templateStrip" aria-label="習慣テンプレート"></div>
+          <div class="habit-list" id="managedHabits" aria-label="登録済みの習慣"></div>
+        </section>
+
+        <section class="screen" id="screen-insights" aria-labelledby="insightsTitle">
+          <div class="section-heading">
+            <p class="eyebrow">週次レビュー</p>
+            <h2 id="insightsTitle">振り返り</h2>
+          </div>
+          <div id="insightsRoot"></div>
+        </section>
+
+        <section class="screen" id="screen-settings" aria-labelledby="settingsTitle">
+          <div class="section-heading">
+            <p class="eyebrow">プライバシー</p>
+            <h2 id="settingsTitle">設定</h2>
+          </div>
+
+          <div class="settings-group">
+            <label>
+              ニックネーム
+              <input id="profileName" type="text" maxlength="24" autocomplete="nickname" />
+            </label>
+
+            <label>
+              テーマ
+              <select id="themeSelect">
+                <option value="system">端末に合わせる</option>
+                <option value="light">ライト</option>
+                <option value="dark">ダーク</option>
+              </select>
+            </label>
+
+            <label class="toggle-row">
+              <span>文字を大きくする</span>
+              <input id="largeTextToggle" type="checkbox" />
+            </label>
+
+            <label class="toggle-row">
+              <span>穏やかな通知文にする</span>
+              <input id="gentleToneToggle" type="checkbox" />
+            </label>
+          </div>
+
+          <div class="settings-group">
+            <button class="secondary-button full-width" id="requestNotificationButton" type="button">
+              通知を確認
+            </button>
+            <button class="secondary-button full-width" id="exportButton" type="button">
+              データを書き出す
+            </button>
+            <label class="file-import">
+              データを読み込む
+              <input id="importInput" type="file" accept="application/json" />
+            </label>
+            <button class="danger-button full-width" id="resetButton" type="button">
+              すべて削除
+            </button>
+          </div>
+
+          <div class="privacy-note">
+            <h3>保存範囲</h3>
+            <p>
+              入力内容はこのブラウザのローカルストレージに保存されます。サーバー送信、位置情報取得、健康データ取得は行いません。
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <nav class="bottom-nav" aria-label="主要画面">
+        <button type="button" class="nav-button is-active" data-view="today">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 10.5 12 4l8 6.5V20H5v-7h14" />
+          </svg>
+          今日
+        </button>
+        <button type="button" class="nav-button" data-view="create">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          作成
+        </button>
+        <button type="button" class="nav-button" data-view="insights">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 19V5M8 17v-5m5 5V8m5 9v-8" />
+          </svg>
+          振り返り
+        </button>
+        <button type="button" class="nav-button" data-view="settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
+            <path d="M19 12a7.2 7.2 0 0 0-.1-1.1l2-1.5-2-3.4-2.4 1a7.8 7.8 0 0 0-1.9-1.1L14.2 3h-4.4l-.4 2.9A7.8 7.8 0 0 0 7.5 7l-2.4-1-2 3.4 2 1.5A7.2 7.2 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.5 2 3.4 2.4-1c.6.5 1.2.8 1.9 1.1l.4 2.9h4.4l.4-2.9c.7-.3 1.3-.6 1.9-1.1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1.1Z" />
+          </svg>
+          設定
+        </button>
+      </nav>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
