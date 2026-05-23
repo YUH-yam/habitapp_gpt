@@ -1,25 +1,25 @@
 <!doctype html>
-<html lang="ja">
+<html lang="ja" data-theme="light">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#f7f7fa" />
-    <meta
-      name="description"
-      content="三日坊主を防ぐための、最小版・If-Then・復帰導線つき習慣化支援PWA"
-    />
-    <title>つづく設計</title>
+    <meta name="theme-color" content="#fbfaf7" />
+    <meta name="description" content="小さく始めて、止まっても戻れる習慣化支援PWA" />
+    <title>余白習慣</title>
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
-      <header class="app-header">
-        <div>
-          <p class="eyebrow">習慣化サポート</p>
-          <h1>つづく設計</h1>
-        </div>
+      <header class="topbar">
+        <button class="brand-button" type="button" data-view="today" aria-label="今日の実行へ">
+          <span class="brand-mark" aria-hidden="true">余</span>
+          <span class="brand-copy">
+            <span>Yohaku Habit</span>
+            <strong>余白習慣</strong>
+          </span>
+        </button>
         <button class="icon-button" id="installButton" type="button" hidden aria-label="ホーム画面に追加">
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
@@ -30,249 +30,220 @@
 
       <main class="main-content" id="mainContent">
         <section class="screen is-active" id="screen-today" aria-labelledby="todayTitle">
+          <div class="screen-label">
+            <span>01</span>
+            <span>Execute</span>
+          </div>
+          <h1 id="todayTitle">今日の一手</h1>
           <div id="todayRoot"></div>
         </section>
 
-        <section class="screen" id="screen-create" aria-labelledby="createTitle">
-          <div class="section-heading">
-            <p class="eyebrow">If-Then プラン</p>
-            <h2 id="createTitle">習慣を設計</h2>
+        <section class="screen" id="screen-design" aria-labelledby="designTitle">
+          <div class="screen-label">
+            <span>02</span>
+            <span>Design</span>
           </div>
+          <h1 id="designTitle">1つずつ設計</h1>
 
-          <form class="habit-form" id="habitForm">
+          <div class="starter-dock" id="templateStrip" aria-label="習慣テンプレート"></div>
+
+          <form class="builder" id="habitForm">
             <input type="hidden" name="habitId" id="habitId" />
 
-            <label>
-              習慣名
-              <input
-                id="habitName"
-                name="name"
-                type="text"
-                autocomplete="off"
-                maxlength="32"
-                required
-                placeholder="例: 英語を1分読む"
-              />
-            </label>
-
-            <label>
-              目的
-              <input
-                id="habitWhy"
-                name="why"
-                type="text"
-                maxlength="48"
-                placeholder="例: 海外の会議で自然に話す"
-              />
-            </label>
-
-            <div class="field-row">
-              <label>
-                カテゴリ
-                <select id="habitCategory" name="category">
-                  <option value="health">健康</option>
-                  <option value="learning">学習</option>
-                  <option value="work">仕事</option>
-                  <option value="mind">整える</option>
-                  <option value="home">暮らし</option>
-                </select>
-              </label>
-
-              <label>
-                通知窓
-                <select id="habitReminder" name="reminderWindow">
-                  <option value="朝">朝</option>
-                  <option value="昼">昼</option>
-                  <option value="夕方">夕方</option>
-                  <option value="夜">夜</option>
-                  <option value="なし">なし</option>
-                </select>
-              </label>
-            </div>
-
-            <label>
-              通常版
-              <input
-                id="habitTarget"
-                name="targetAction"
-                type="text"
-                maxlength="48"
-                required
-                placeholder="例: 英語の記事を5分読む"
-              />
-            </label>
-
-            <label>
-              最小版
-              <input
-                id="habitTiny"
-                name="tinyAction"
-                type="text"
-                maxlength="48"
-                required
-                placeholder="例: 1文だけ読む"
-              />
-            </label>
-
-            <label>
-              既存ルーティン
-              <input
-                id="habitAnchor"
-                name="anchor"
-                type="text"
-                list="anchorOptions"
-                maxlength="48"
-                required
-                placeholder="例: 朝食のあと"
-              />
-            </label>
-            <datalist id="anchorOptions">
-              <option value="朝食のあと"></option>
-              <option value="通勤電車に乗ったら"></option>
-              <option value="昼休みに入ったら"></option>
-              <option value="帰宅して靴を脱いだら"></option>
-              <option value="シャワーのあと"></option>
-              <option value="寝る準備を始めたら"></option>
-            </datalist>
-
-            <label>
-              できない日の代替
-              <input
-                id="habitFallback"
-                name="fallback"
-                type="text"
-                maxlength="64"
-                required
-                placeholder="例: 最小版だけ実行して明日の同じタイミングで戻る"
-              />
-            </label>
-
-            <fieldset class="weekday-field">
-              <legend>実行する曜日</legend>
-              <div class="weekday-picker" id="weekdayPicker" aria-label="実行する曜日">
-                <button type="button" class="weekday-chip" data-day="1">月</button>
-                <button type="button" class="weekday-chip" data-day="2">火</button>
-                <button type="button" class="weekday-chip" data-day="3">水</button>
-                <button type="button" class="weekday-chip" data-day="4">木</button>
-                <button type="button" class="weekday-chip" data-day="5">金</button>
-                <button type="button" class="weekday-chip" data-day="6">土</button>
-                <button type="button" class="weekday-chip" data-day="0">日</button>
+            <div class="builder-top">
+              <div>
+                <p class="panel-kicker">Builder</p>
+                <h2>一問ずつ入力</h2>
               </div>
-            </fieldset>
-
-            <div class="ifthen-preview" aria-live="polite">
-              <span>プラン</span>
-              <p id="ifThenPreview">既存ルーティンを選ぶと表示されます。</p>
+              <div class="stepper" aria-label="入力ステップ">
+                <button type="button" data-builder-step-target="0" class="step-dot is-active">1</button>
+                <button type="button" data-builder-step-target="1" class="step-dot">2</button>
+                <button type="button" data-builder-step-target="2" class="step-dot">3</button>
+                <button type="button" data-builder-step-target="3" class="step-dot">4</button>
+                <button type="button" data-builder-step-target="4" class="step-dot">5</button>
+              </div>
             </div>
 
-            <div class="difficulty-preview" id="difficultyPreview" aria-live="polite"></div>
+            <div class="builder-stage">
+              <section class="builder-panel is-active" data-builder-step="0" aria-label="習慣名">
+                <p class="step-label">Step 1 / 名前</p>
+                <label class="large-field">
+                  何を続けたいですか
+                  <input id="habitName" name="name" type="text" autocomplete="off" maxlength="32" placeholder="英語を1分読む" />
+                </label>
+                <label>
+                  目的
+                  <input id="habitWhy" name="why" type="text" maxlength="48" placeholder="英語に触れる抵抗感を減らす" />
+                </label>
+              </section>
 
-            <div class="form-actions">
-              <button class="secondary-button" id="cancelEditButton" type="button" hidden>取消</button>
+              <section class="builder-panel" data-builder-step="1" aria-label="通常版">
+                <p class="step-label">Step 2 / 通常版</p>
+                <label class="large-field">
+                  余裕がある日の行動
+                  <input id="habitTarget" name="targetAction" type="text" maxlength="48" placeholder="英語の記事を5分読む" />
+                </label>
+                <p class="field-hint">最初は短く。10分を超える場合は重くなりやすいです。</p>
+              </section>
+
+              <section class="builder-panel" data-builder-step="2" aria-label="最小版">
+                <p class="step-label">Step 3 / 最小版</p>
+                <label class="large-field">
+                  疲れた日でもできる最小版
+                  <input id="habitTiny" name="tinyAction" type="text" maxlength="48" placeholder="英単語を1つ見る" />
+                </label>
+                <p class="field-hint">10秒から30秒で終わる形にします。</p>
+              </section>
+
+              <section class="builder-panel" data-builder-step="3" aria-label="きっかけ">
+                <p class="step-label">Step 4 / きっかけ</p>
+                <label class="large-field">
+                  どの行動のあとに始めますか
+                  <input id="habitAnchor" name="anchor" type="text" list="anchorOptions" maxlength="48" placeholder="朝食のあと" />
+                </label>
+                <datalist id="anchorOptions">
+                  <option value="朝食のあと"></option>
+                  <option value="通勤電車に乗ったら"></option>
+                  <option value="昼休みに入ったら"></option>
+                  <option value="帰宅して靴を脱いだら"></option>
+                  <option value="シャワーのあと"></option>
+                  <option value="寝る準備を始めたら"></option>
+                </datalist>
+              </section>
+
+              <section class="builder-panel" data-builder-step="4" aria-label="戻り方と詳細">
+                <p class="step-label">Step 5 / 戻り方</p>
+                <label class="large-field">
+                  できない日の戻り方
+                  <input id="habitFallback" name="fallback" type="text" maxlength="64" placeholder="英単語1つだけ見て完了にする" />
+                </label>
+                <div class="field-row">
+                  <label>
+                    カテゴリ
+                    <select id="habitCategory" name="category">
+                      <option value="health">健康</option>
+                      <option value="learning">学習</option>
+                      <option value="work">仕事</option>
+                      <option value="mind">整える</option>
+                      <option value="home">暮らし</option>
+                    </select>
+                  </label>
+                  <label>
+                    通知窓
+                    <select id="habitReminder" name="reminderWindow">
+                      <option value="朝">朝</option>
+                      <option value="昼">昼</option>
+                      <option value="夕方">夕方</option>
+                      <option value="夜">夜</option>
+                      <option value="なし">なし</option>
+                    </select>
+                  </label>
+                </div>
+                <fieldset class="weekday-field">
+                  <legend>曜日</legend>
+                  <div class="weekday-picker" id="weekdayPicker" aria-label="実行する曜日">
+                    <button type="button" class="weekday-chip" data-day="1">月</button>
+                    <button type="button" class="weekday-chip" data-day="2">火</button>
+                    <button type="button" class="weekday-chip" data-day="3">水</button>
+                    <button type="button" class="weekday-chip" data-day="4">木</button>
+                    <button type="button" class="weekday-chip" data-day="5">金</button>
+                    <button type="button" class="weekday-chip" data-day="6">土</button>
+                    <button type="button" class="weekday-chip" data-day="0">日</button>
+                  </div>
+                </fieldset>
+              </section>
+            </div>
+
+            <div class="preview-strip" aria-live="polite">
+              <p id="ifThenPreview">きっかけを入力すると表示されます。</p>
+              <div id="difficultyPreview"></div>
+            </div>
+
+            <div class="builder-actions">
+              <button class="text-button" id="cancelEditButton" type="button" hidden>取消</button>
+              <button class="text-button" id="builderPrevButton" type="button">戻る</button>
+              <button class="secondary-button" id="builderNextButton" type="button">次へ</button>
               <button class="primary-button" id="saveHabitButton" type="submit">保存</button>
             </div>
           </form>
 
-          <div class="template-strip" id="templateStrip" aria-label="習慣テンプレート"></div>
-          <div class="habit-list" id="managedHabits" aria-label="登録済みの習慣"></div>
+          <div class="saved-dock" id="managedHabits" aria-label="登録済みの習慣"></div>
         </section>
 
-        <section class="screen" id="screen-insights" aria-labelledby="insightsTitle">
-          <div class="section-heading">
-            <p class="eyebrow">週次レビュー</p>
-            <h2 id="insightsTitle">振り返り</h2>
+        <section class="screen" id="screen-review" aria-labelledby="reviewTitle">
+          <div class="screen-label">
+            <span>03</span>
+            <span>Tune</span>
           </div>
-          <div id="insightsRoot"></div>
+          <h1 id="reviewTitle">調整メモ</h1>
+          <div id="reviewRoot"></div>
         </section>
 
         <section class="screen" id="screen-settings" aria-labelledby="settingsTitle">
-          <div class="section-heading">
-            <p class="eyebrow">プライバシー</p>
-            <h2 id="settingsTitle">設定</h2>
+          <div class="screen-label">
+            <span>04</span>
+            <span>Store</span>
           </div>
+          <h1 id="settingsTitle">保管と表示</h1>
 
-          <div class="settings-group">
-            <label>
-              ニックネーム
+          <div class="settings-list">
+            <label class="settings-row">
+              <span>ニックネーム</span>
               <input id="profileName" type="text" maxlength="24" autocomplete="nickname" />
             </label>
-
-            <label>
-              テーマ
+            <label class="settings-row">
+              <span>テーマ</span>
               <select id="themeSelect">
                 <option value="system">端末に合わせる</option>
                 <option value="light">ライト</option>
                 <option value="dark">ダーク</option>
               </select>
             </label>
-
-            <label class="toggle-row">
+            <label class="settings-row toggle-row">
               <span>文字を大きくする</span>
               <input id="largeTextToggle" type="checkbox" />
             </label>
-
-            <label class="toggle-row">
+            <label class="settings-row toggle-row">
               <span>穏やかな通知文にする</span>
               <input id="gentleToneToggle" type="checkbox" />
             </label>
           </div>
 
-          <div class="settings-group">
-            <button class="secondary-button full-width" id="requestNotificationButton" type="button">
-              通知を確認
-            </button>
-            <button class="secondary-button full-width" id="exportButton" type="button">
-              データを書き出す
-            </button>
-            <button class="secondary-button full-width" id="exportCsvButton" type="button">
-              CSVを書き出す
-            </button>
-            <button class="secondary-button full-width" id="exportMarkdownButton" type="button">
-              週次レビューを書き出す
-            </button>
+          <div class="settings-actions">
+            <button class="secondary-button full-width" id="requestNotificationButton" type="button">通知を確認</button>
+            <button class="secondary-button full-width" id="exportButton" type="button">JSONを書き出す</button>
+            <button class="secondary-button full-width" id="exportCsvButton" type="button">CSVを書き出す</button>
+            <button class="secondary-button full-width" id="exportMarkdownButton" type="button">週次レビューを書き出す</button>
             <label class="file-import">
-              データを読み込む
+              JSONを読み込む
               <input id="importInput" type="file" accept="application/json" />
             </label>
-            <button class="danger-button full-width" id="resetButton" type="button">
-              すべて削除
-            </button>
+            <button class="danger-button full-width" id="resetButton" type="button">すべて削除</button>
           </div>
 
-          <div class="privacy-note">
-            <h3>保存範囲</h3>
-            <p>
-              入力内容はこのブラウザのローカルストレージに保存されます。サーバー送信、位置情報取得、健康データ取得は行いません。
-            </p>
-          </div>
+          <section class="storage-note">
+            <p class="panel-kicker">Local only</p>
+            <p>入力内容はこのブラウザに保存します。サーバー送信、位置情報取得、健康データ取得は行いません。</p>
+          </section>
         </section>
       </main>
 
       <nav class="bottom-nav" aria-label="主要画面">
         <button type="button" class="nav-button is-active" data-view="today">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 10.5 12 4l8 6.5V20H5v-7h14" />
-          </svg>
-          今日
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M7 5h10M7 19h10" /></svg>
+          実行
         </button>
-        <button type="button" class="nav-button" data-view="create">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 5v14M5 12h14" />
-          </svg>
-          作成
+        <button type="button" class="nav-button" data-view="design">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+          設計
         </button>
-        <button type="button" class="nav-button" data-view="insights">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 19V5M8 17v-5m5 5V8m5 9v-8" />
-          </svg>
-          振り返り
+        <button type="button" class="nav-button" data-view="review">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18V8m7 10V5m7 13v-7" /></svg>
+          調整
         </button>
         <button type="button" class="nav-button" data-view="settings">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />
-            <path d="M19 12a7.2 7.2 0 0 0-.1-1.1l2-1.5-2-3.4-2.4 1a7.8 7.8 0 0 0-1.9-1.1L14.2 3h-4.4l-.4 2.9A7.8 7.8 0 0 0 7.5 7l-2.4-1-2 3.4 2 1.5A7.2 7.2 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.5 2 3.4 2.4-1c.6.5 1.2.8 1.9 1.1l.4 2.9h4.4l.4-2.9c.7-.3 1.3-.6 1.9-1.1l2.4 1 2-3.4-2-1.5c.1-.3.1-.7.1-1.1Z" />
-          </svg>
-          設定
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 7h12v12H6z" /><path d="M9 4h6v3H9z" /></svg>
+          保管
         </button>
       </nav>
     </div>

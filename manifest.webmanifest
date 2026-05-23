@@ -1,11 +1,11 @@
 {
-  "name": "つづく設計",
-  "short_name": "つづく",
-  "description": "最小版・If-Then・復帰導線で三日坊主を防ぐ習慣化支援ツール",
+  "name": "余白習慣",
+  "short_name": "余白習慣",
+  "description": "小さく始めて、止まっても戻れる習慣化支援PWA",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#f7f7fa",
-  "theme_color": "#f7f7fa",
+  "background_color": "#f8f6f1",
+  "theme_color": "#f8f6f1",
   "lang": "ja",
   "icons": [
     {

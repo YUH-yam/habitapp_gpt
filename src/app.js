@@ -3,7 +3,6 @@ import {
   REASON_LABELS,
   STATUS_LABELS,
   assessHabitDifficulty,
-  addDaysISO,
   buildCoachComment,
   buildIfThen,
   buildSuggestions,
@@ -20,8 +19,10 @@ import {
 } from "./habitLogic.mjs";
 
 const STORAGE_KEY = "habitapp-gpt-state-v1";
+const BUILDER_STEP_MAX = 4;
+
 const todayRoot = document.querySelector("#todayRoot");
-const insightsRoot = document.querySelector("#insightsRoot");
+const reviewRoot = document.querySelector("#reviewRoot");
 const managedHabits = document.querySelector("#managedHabits");
 const templateStrip = document.querySelector("#templateStrip");
 const habitForm = document.querySelector("#habitForm");
@@ -31,6 +32,8 @@ const toast = document.querySelector("#toast");
 const installButton = document.querySelector("#installButton");
 const cancelEditButton = document.querySelector("#cancelEditButton");
 const saveHabitButton = document.querySelector("#saveHabitButton");
+const builderPrevButton = document.querySelector("#builderPrevButton");
+const builderNextButton = document.querySelector("#builderNextButton");
 
 const habitTemplates = [
   {
@@ -99,44 +102,25 @@ const habitTemplates = [
     reminderWindow: "夜",
     days: [0, 1, 2, 3, 4, 5, 6],
   },
-  {
-    name: "レシートを1枚見る",
-    why: "お金の流れを把握する",
-    category: "home",
-    targetAction: "支出を3分だけ確認する",
-    tinyAction: "レシートを1枚見る",
-    anchor: "夕食のあと",
-    fallback: "レシート1枚だけ見て完了にする",
-    reminderWindow: "夜",
-    days: [0, 3, 6],
-  },
 ];
 
-const categoryIcon = {
-  health: "M5 13c2-5 5-7 7-7s5 2 7 7c0 4-3 7-7 7s-7-3-7-7Z",
-  learning: "M5 5h10a4 4 0 0 1 4 4v10H9a4 4 0 0 1-4-4V5Zm4 0v14",
-  work: "M4 8h16v10H4V8Zm5 0V6h6v2",
-  mind: "M12 4c4 0 7 3 7 7 0 5-7 9-7 9s-7-4-7-9c0-4 3-7 7-7Zm0 4v5l3 2",
-  home: "M4 11 12 4l8 7v9H6v-7h12",
-};
-
 let state = loadState();
-let activeView = "today";
 let selectedDays = new Set([1, 2, 3, 4, 5]);
+let builderStep = 0;
 let deferredInstallPrompt = null;
 
 init();
 
 function init() {
   applyPreferences();
-  renderAll();
   bindEvents();
+  renderAll();
   registerServiceWorker();
 }
 
 function loadState() {
   const fallback = {
-    version: 1,
+    version: 4,
     profile: { name: "", gentleTone: true },
     settings: { theme: "system", largeText: false },
     habits: [],
@@ -166,21 +150,27 @@ function saveState() {
 
 function bindEvents() {
   document.addEventListener("click", (event) => {
-    const viewButton = event.target.closest("[data-view]");
-    if (viewButton) {
-      switchView(viewButton.dataset.view);
+    const navButton = event.target.closest("[data-view]");
+    if (navButton) {
+      switchView(navButton.dataset.view);
       return;
     }
 
-    const logButton = event.target.closest("[data-log-status]");
-    if (logButton) {
-      recordHabit(logButton.dataset.habitId, logButton.dataset.logStatus);
+    const builderStepButton = event.target.closest("[data-builder-step-target]");
+    if (builderStepButton) {
+      setBuilderStep(Number(builderStepButton.dataset.builderStepTarget));
       return;
     }
 
     const templateButton = event.target.closest("[data-template-index]");
     if (templateButton) {
       fillTemplate(Number(templateButton.dataset.templateIndex));
+      return;
+    }
+
+    const logButton = event.target.closest("[data-log-status]");
+    if (logButton) {
+      recordHabit(logButton.dataset.habitId, logButton.dataset.logStatus);
       return;
     }
 
@@ -196,12 +186,6 @@ function bindEvents() {
       return;
     }
 
-    const recoverButton = event.target.closest("[data-recover-habit]");
-    if (recoverButton) {
-      recordHabit(recoverButton.dataset.recoverHabit, "tiny");
-      return;
-    }
-
     const pauseButton = event.target.closest("[data-toggle-pause]");
     if (pauseButton) {
       togglePause(pauseButton.dataset.togglePause);
@@ -211,7 +195,6 @@ function bindEvents() {
     const graduateButton = event.target.closest("[data-toggle-graduate]");
     if (graduateButton) {
       toggleGraduate(graduateButton.dataset.toggleGraduate);
-      return;
     }
   });
 
@@ -219,14 +202,14 @@ function bindEvents() {
     const button = event.target.closest("[data-day]");
     if (!button) return;
     const day = Number(button.dataset.day);
-    if (selectedDays.has(day)) {
-      selectedDays.delete(day);
-    } else {
-      selectedDays.add(day);
-    }
+    if (selectedDays.has(day)) selectedDays.delete(day);
+    else selectedDays.add(day);
     updateWeekdayButtons();
     updatePreview();
   });
+
+  builderPrevButton.addEventListener("click", () => setBuilderStep(builderStep - 1));
+  builderNextButton.addEventListener("click", () => setBuilderStep(builderStep + 1));
 
   habitForm.addEventListener("input", updatePreview);
   habitForm.addEventListener("submit", (event) => {
@@ -275,11 +258,12 @@ function bindEvents() {
 
 function renderAll() {
   renderToday();
-  renderCreate();
-  renderInsights();
+  renderDesign();
+  renderReview();
   renderSettings();
   updateWeekdayButtons();
   updatePreview();
+  setBuilderStep(builderStep);
 }
 
 function persistAndRender() {
@@ -289,19 +273,20 @@ function persistAndRender() {
 }
 
 function switchView(view) {
-  activeView = view;
   document.querySelectorAll(".screen").forEach((screen) => {
     screen.classList.toggle("is-active", screen.id === `screen-${view}`);
   });
   document.querySelectorAll(".nav-button").forEach((button) => {
     button.classList.toggle("is-active", button.dataset.view === view);
   });
-  document.querySelector("#mainContent").scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: "auto" });
 }
 
 function renderToday() {
   const today = toISODate();
-  const stats = calculateStats(state.habits, state.logs, {
+  const dueHabits = getDueHabits(state.habits, today);
+  const recovery = getRecoveryCandidates(state.habits, state.logs, today);
+  const stats7 = calculateStats(state.habits, state.logs, {
     endIso: today,
     dayCount: 7,
     includeTodayAsEligible: false,
@@ -315,143 +300,164 @@ function renderToday() {
     endIso: today,
     dayCount: 30,
   });
-  const dueHabits = getDueHabits(state.habits, today);
-  const recovery = getRecoveryCandidates(state.habits, state.logs, today);
-  const name = state.profile.name || "今日";
   const completedToday = dueHabits.filter((habit) => {
     const log = getLogForDate(state.logs, habit.id, today);
     return log?.status === "done" || log?.status === "tiny";
   }).length;
+  const primary = recovery[0] || dueHabits.find((habit) => {
+    const log = getLogForDate(state.logs, habit.id, today);
+    return !(log?.status === "done" || log?.status === "tiny");
+  }) || dueHabits[0];
 
   todayRoot.innerHTML = `
-    <div class="today-hero">
-      <div>
-        <p class="eyebrow" id="todayTitle">${formatDisplayDate(today)}</p>
-        <h2>${escapeHtml(name)}のフォーカス</h2>
-        <p>${buildHeroMessage(dueHabits, completedToday)}</p>
+    <section class="today-console">
+      <div class="console-head">
+        <div class="date-block">
+          <span>${formatDisplayDate(today)}</span>
+          <strong>${Math.max(0, dueHabits.length - completedToday)}</strong>
+        </div>
+        <span class="badge">${buildTodayBadge(dueHabits, completedToday)}</span>
       </div>
-      <div class="progress-ring" style="--progress:${stats.consistencyPercent}" aria-label="直近7日のコンシステンシー指数 ${stats.consistencyPercent}%">
-        ${stats.consistencyPercent}%
+      <div class="signal-strip">
+        <div class="signal"><span class="metric-label">今日</span><strong>${completedToday}/${dueHabits.length}</strong></div>
+        <div class="signal"><span class="metric-label">7日</span><strong>${stats7.consistencyPercent}%</strong></div>
+        <div class="signal"><span class="metric-label">復帰</span><strong>${recoveryMetrics.recovered}</strong></div>
       </div>
-    </div>
-
-    <div class="metric-grid" aria-label="直近7日の指標">
-      <div class="metric-tile"><span>今日</span><strong>${completedToday}/${dueHabits.length}</strong></div>
-      <div class="metric-tile"><span>30日</span><strong>${stats30.consistencyPercent}%</strong></div>
-      <div class="metric-tile"><span>復帰</span><strong>${recoveryMetrics.recovered}</strong></div>
-    </div>
-
-    ${dueHabits.length > 0 ? renderTinyNow(dueHabits, today) : ""}
-    ${recovery.length > 0 ? renderRecovery(recovery[0]) : ""}
-    ${dueHabits.length > 0 ? `<div class="habit-stack">${dueHabits.map(renderHabitCard).join("")}</div>` : renderEmptyToday()}
+    </section>
+    ${state.habits.length === 0 ? renderEmptyToday() : ""}
+    ${state.habits.length > 0 && dueHabits.length === 0 ? renderOffDay() : ""}
+    ${primary ? renderFocusBoard(primary) : ""}
+    ${state.habits.length > 0 ? renderTodayList(dueHabits, primary?.id, stats30) : ""}
   `;
 }
 
-function buildHeroMessage(dueHabits, completedToday) {
-  if (state.habits.length === 0) return "まず1つだけ選んで、明日も再現できる形にします。";
-  if (dueHabits.length === 0) return "今日は予定のない日です。必要なら最小版だけ残せます。";
-  if (completedToday === dueHabits.length) return "今日の予定は完了です。積み上げより、明日戻れる形を保ちます。";
-  return "通常版が重い日は、最小版で記録してかまいません。";
-}
-
-function renderRecovery(habit) {
-  return `
-    <div class="recovery-banner">
-      <h3>再開チケット</h3>
-      <p>昨日の空白は今日の最小版で回収できます。「${escapeHtml(habit.tinyAction)}」から戻します。</p>
-      <button class="secondary-button full-width" type="button" data-recover-habit="${habit.id}">最小版で再開</button>
-    </div>
-  `;
-}
-
-function renderTinyNow(dueHabits, today) {
-  const items = dueHabits
-    .filter((habit) => {
-      const log = getLogForDate(state.logs, habit.id, today);
-      return !(log?.status === "done" || log?.status === "tiny");
-    })
-    .slice(0, 3);
-
-  if (items.length === 0) return "";
-
-  return `
-    <div class="tiny-now">
-      <h3>今すぐできる最小版</h3>
-      <div class="tiny-list">
-        ${items.map((habit) => `
-          <button class="tiny-action" type="button" data-habit-id="${habit.id}" data-log-status="tiny">
-            ${escapeHtml(habit.tinyAction)}
-          </button>
-        `).join("")}
-      </div>
-    </div>
-  `;
+function buildTodayBadge(dueHabits, completedToday) {
+  if (state.habits.length === 0) return "未登録";
+  if (dueHabits.length === 0) return "予定なし";
+  if (completedToday === dueHabits.length) return "完了";
+  return "残りあり";
 }
 
 function renderEmptyToday() {
   return `
-    <div class="empty-state">
-      <h3>最初の1つを選択</h3>
-      <p>大きい目標より、生活の中で繰り返せる最小行動を先に置きます。</p>
-      <div class="quick-actions">
-        ${habitTemplates.map((template, index) => `
-          <button class="ghost-button" type="button" data-template-index="${index}">
-            ${escapeHtml(template.name)}
-          </button>
-        `).join("")}
+    <section class="starter-board">
+      <div class="starter-copy">
+        <p class="panel-kicker">Start small</p>
+        <h2>まず1つ選ぶ</h2>
+        <p class="muted-text">細かい調整はあとでできます。今日は、最小版まで決まっている候補から始めます。</p>
       </div>
-    </div>
+      <div class="starter-grid">
+        ${habitTemplates.slice(0, 4).map((template, index) => renderStarterButton(template, index)).join("")}
+      </div>
+    </section>
   `;
 }
 
-function renderHabitCard(habit) {
+function renderStarterButton(template, index) {
+  return `
+    <button class="starter-card" type="button" data-template-index="${index}">
+      <span>${String(index + 1).padStart(2, "0")}</span>
+      <strong>${escapeHtml(template.name)}</strong>
+      <small>${escapeHtml(template.tinyAction)}</small>
+    </button>
+  `;
+}
+
+function renderOffDay() {
+  return `
+    <section class="starter-board">
+      <div class="starter-copy">
+        <p class="panel-kicker">No schedule</p>
+        <h2>今日は予定なし</h2>
+        <p class="muted-text">予定日ではありません。記録を増やしたい場合は、設計画面で曜日を調整できます。</p>
+      </div>
+    </section>
+  `;
+}
+
+function renderFocusBoard(habit) {
   const today = toISODate();
   const log = getLogForDate(state.logs, habit.id, today);
   const status = log?.status || "pending";
-  const plan = buildIfThen(habit);
-  const iconPath = categoryIcon[habit.category] || categoryIcon.health;
-  const lifecycle = getHabitLifecycle(habit, state.logs, today);
   const difficulty = assessHabitDifficulty(habit);
+  const lifecycle = getHabitLifecycle(habit, state.logs, today);
   const reasonOptions = MISSED_REASONS.map((reason) => `
     <option value="${reason.value}" ${log?.reason === reason.value ? "selected" : ""}>${reason.label}</option>
   `).join("");
 
   return `
-    <article class="habit-card ${status === "done" || status === "tiny" ? "confetti" : ""}">
-      <header>
-        <div>
-          <div class="habit-title">
-            <span class="habit-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="${iconPath}"/></svg></span>
-            ${escapeHtml(habit.name)}
-          </div>
-          <p class="habit-meta">${escapeHtml(habit.reminderWindow)} / ${escapeHtml(lifecycle)} / 難易度${difficulty.label}</p>
-        </div>
-        <span class="status-pill ${status}">${STATUS_LABELS[status]}</span>
-      </header>
-      <p class="plan-text">${escapeHtml(plan)}</p>
-      ${log?.reason ? `<p class="reason-note">未実行理由: ${escapeHtml(REASON_LABELS[log.reason] || log.reason)}</p>` : ""}
-      ${(status === "missed" || status === "later") ? `<p class="recovery-note">復帰プラン: ${escapeHtml(habit.fallback)}</p>` : ""}
-      <label class="reason-select">
-        未実行理由
-        <select data-reason-select="${habit.id}">
-          <option value="">選択なし</option>
-          ${reasonOptions}
-        </select>
-      </label>
-      <div class="action-grid">
-        <button class="primary-button" type="button" data-habit-id="${habit.id}" data-log-status="done">完了</button>
-        <button class="secondary-button" type="button" data-habit-id="${habit.id}" data-log-status="tiny">最小版</button>
-        <button class="ghost-button" type="button" data-habit-id="${habit.id}" data-log-status="later">明日に回す</button>
-        <button class="ghost-button" type="button" data-habit-id="${habit.id}" data-log-status="missed">今日は無理</button>
+    <section class="ritual-board">
+      <div class="ritual-rail" aria-hidden="true">
+        <span class="rail-dot"></span>
+        <span class="rail-line"></span>
+        <span class="rail-label">now</span>
       </div>
-    </article>
+      <div class="ritual-main">
+        <div class="ritual-heading">
+          <div>
+            <p class="panel-kicker">${escapeHtml(habit.reminderWindow)} / ${escapeHtml(lifecycle)} / 難易度${difficulty.label}</p>
+            <h2>${escapeHtml(habit.name)}</h2>
+          </div>
+          <span class="status-pill ${status}">${STATUS_LABELS[status]}</span>
+        </div>
+
+        <div class="command-panel">
+          <span>最小版</span>
+          <strong>${escapeHtml(habit.tinyAction)}</strong>
+        </div>
+
+        <p class="plan-note">${escapeHtml(buildIfThen(habit))}</p>
+        ${log?.reason ? `<p class="reason-note">未実行理由: ${escapeHtml(REASON_LABELS[log.reason] || log.reason)}</p>` : ""}
+        ${(status === "missed" || status === "later") ? `<p class="recovery-note">戻り方: ${escapeHtml(habit.fallback)}</p>` : ""}
+
+        <label class="reason-control">
+          見送る理由
+          <select data-reason-select="${habit.id}">
+            <option value="">選択なし</option>
+            ${reasonOptions}
+          </select>
+        </label>
+
+        <div class="action-matrix">
+          <button class="primary-button" type="button" data-habit-id="${habit.id}" data-log-status="tiny">最小版で完了</button>
+          <button class="secondary-button" type="button" data-habit-id="${habit.id}" data-log-status="done">通常完了</button>
+          <button class="ghost-button" type="button" data-habit-id="${habit.id}" data-log-status="later">明日に回す</button>
+          <button class="ghost-button" type="button" data-habit-id="${habit.id}" data-log-status="missed">今日は無理</button>
+        </div>
+      </div>
+    </section>
   `;
 }
 
-function renderCreate() {
+function renderTodayList(dueHabits, primaryId, stats30) {
+  const others = dueHabits.filter((habit) => habit.id !== primaryId);
+  if (others.length === 0) {
+    return `<p class="muted-text">30日実行率: ${stats30.consistencyPercent}%</p>`;
+  }
+
+  return `
+    <div class="quiet-list">
+      ${others.map((habit) => {
+        const log = getLogForDate(state.logs, habit.id, toISODate());
+        return `
+          <div class="list-row">
+            <div>
+              <div class="habit-name">${escapeHtml(habit.name)}</div>
+              <p class="habit-meta">${escapeHtml(habit.tinyAction)}</p>
+            </div>
+            <span class="status-pill ${log?.status || "pending"}">${STATUS_LABELS[log?.status || "pending"]}</span>
+          </div>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderDesign() {
   templateStrip.innerHTML = habitTemplates.map((template, index) => `
-    <button class="ghost-button" type="button" data-template-index="${index}">
-      ${escapeHtml(template.name)}
+    <button class="template-button" type="button" data-template-index="${index}">
+      <span>${String(index + 1).padStart(2, "0")}</span>
+      <strong>${escapeHtml(template.name)}</strong>
     </button>
   `).join("");
 
@@ -461,19 +467,13 @@ function renderCreate() {
       const difficulty = assessHabitDifficulty(habit);
       const lifecycle = getHabitLifecycle(habit, state.logs, toISODate());
       return `
-        <article class="habit-card">
-          <header>
+        <article class="saved-row">
+          <div class="saved-summary">
             <div>
-              <div class="habit-title">${escapeHtml(habit.name)}</div>
-              <p class="habit-meta">${escapeHtml(habit.anchor)} / ${escapeHtml(habit.reminderWindow)}</p>
+              <div class="habit-name">${escapeHtml(habit.name)}</div>
+              <p class="habit-meta">${escapeHtml(habit.anchor)} / ${escapeHtml(lifecycle)} / 難易度${difficulty.label}</p>
             </div>
-            <span class="status-pill pending">${escapeHtml(lifecycle)}</span>
-          </header>
-          <p class="plan-text">${escapeHtml(buildIfThen(habit))}</p>
-          <div class="diagnosis-mini">
-            <span>難易度 ${difficulty.label}</span>
-            <span>自動化 ${difficulty.automationScore}%</span>
-            <span>負荷 ${difficulty.loadScore}%</span>
+            <span class="badge">${habit.days.length}日</span>
           </div>
           <div class="manage-actions">
             <button class="secondary-button" type="button" data-edit-habit="${habit.id}">編集</button>
@@ -486,9 +486,9 @@ function renderCreate() {
     }).join("");
 }
 
-function renderInsights() {
+function renderReview() {
   const today = toISODate();
-  const stats = calculateStats(state.habits, state.logs, {
+  const stats7 = calculateStats(state.habits, state.logs, {
     endIso: today,
     dayCount: 7,
     includeTodayAsEligible: false,
@@ -504,81 +504,70 @@ function renderInsights() {
   });
   const suggestions = buildSuggestions(state.habits, state.logs, today);
   const coachComment = buildCoachComment(state.habits, state.logs, today);
-  const habitScores = state.habits.map((habit) => {
-    const habitStats = calculateStats([habit], state.logs, {
-      endIso: today,
-      dayCount: 30,
-      includeTodayAsEligible: false,
-    });
-    const difficulty = assessHabitDifficulty(habit);
-    return { habit, habitStats, difficulty, lifecycle: getHabitLifecycle(habit, state.logs, today) };
-  });
 
-  insightsRoot.innerHTML = `
-    <div class="insight-card">
-      <h3>直近7日</h3>
-      <div class="metric-grid">
-        <div class="metric-tile"><span>対象</span><strong>${stats.eligible}</strong></div>
-        <div class="metric-tile"><span>完了</span><strong>${stats.totals.completed}</strong></div>
-        <div class="metric-tile"><span>指数</span><strong>${stats.consistencyPercent}%</strong></div>
-      </div>
-      <div class="metric-grid">
-        <div class="metric-tile"><span>30日</span><strong>${stats30.consistencyPercent}%</strong></div>
-        <div class="metric-tile"><span>復帰成功</span><strong>${recoveryMetrics.recovered}</strong></div>
-        <div class="metric-tile"><span>最小版</span><strong>${stats30.totals.tiny}</strong></div>
-      </div>
-      ${stats.byDay.map((day) => {
-        const rate = day.scheduled > 0 ? Math.round((day.completed / day.scheduled) * 100) : 0;
-        return `
-          <div class="bar-row">
-            <span>${day.day}</span>
-            <div class="bar-track" aria-label="${day.day}曜日 ${rate}%"><div class="bar-fill" style="width:${rate}%"></div></div>
-            <span>${rate}%</span>
-          </div>
-        `;
-      }).join("")}
-    </div>
-
-    <div class="insight-card">
-      <h3>コーチコメント</h3>
-      <p>${escapeHtml(coachComment)}</p>
-    </div>
-
-    <div class="insight-card">
-      <h3>未実行理由</h3>
-      ${recoveryMetrics.topReasons.length > 0 ? `
-        <ul class="suggestion-list">
-          ${recoveryMetrics.topReasons.slice(0, 4).map((reason) => `
-            <li>${escapeHtml(reason.label)}: ${reason.count}回</li>
-          `).join("")}
-        </ul>
-      ` : "<p>まだ理由の記録はありません。</p>"}
-    </div>
-
-    <div class="insight-card">
-      <h3>習慣ごとの状態</h3>
-      ${habitScores.length > 0 ? `
-        <div class="habit-score-list">
-          ${habitScores.map(({ habit, habitStats, difficulty, lifecycle }) => `
-            <div class="habit-score-row">
-              <strong>${escapeHtml(habit.name)}</strong>
-              <span>${escapeHtml(lifecycle)} / 実行率${habitStats.consistencyPercent}% / 難易度${difficulty.label}</span>
-            </div>
-          `).join("")}
+  reviewRoot.innerHTML = `
+    <div class="review-stack">
+      <section class="review-panel">
+        <p class="panel-kicker">Current read</p>
+        <p class="review-lede">${escapeHtml(coachComment)}</p>
+        <div class="review-signals">
+          <div class="review-signal"><span class="metric-label">7日</span><strong>${stats7.consistencyPercent}%</strong></div>
+          <div class="review-signal"><span class="metric-label">30日</span><strong>${stats30.consistencyPercent}%</strong></div>
+          <div class="review-signal"><span class="metric-label">最小版</span><strong>${stats30.totals.tiny}</strong></div>
         </div>
-      ` : "<p>習慣を保存すると表示されます。</p>"}
-    </div>
+        ${stats7.byDay.map((day) => {
+          const rate = day.scheduled > 0 ? Math.round((day.completed / day.scheduled) * 100) : 0;
+          return `
+            <div class="bar-row">
+              <span>${day.day}</span>
+              <div class="bar-track" aria-label="${day.day}曜日 ${rate}%"><div class="bar-fill" style="width:${rate}%"></div></div>
+              <span>${rate}%</span>
+            </div>
+          `;
+        }).join("")}
+      </section>
 
-    <div class="insight-card">
-      <h3>次の調整</h3>
-      <ul class="suggestion-list">
-        ${suggestions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
-      </ul>
-    </div>
+      <section class="review-panel">
+        <p class="panel-kicker">Friction</p>
+        ${recoveryMetrics.topReasons.length > 0 ? `
+          <ul class="list">
+            ${recoveryMetrics.topReasons.slice(0, 4).map((reason) => `
+              <li>${escapeHtml(reason.label)}: ${reason.count}回</li>
+            `).join("")}
+          </ul>
+        ` : "<p class=\"muted-text\">まだ記録はありません。</p>"}
+      </section>
 
-    <div class="insight-card">
-      <h3>設計メモ</h3>
-      <p>習慣は短期の連続記録だけで判断せず、8〜12週間の反復、同じ文脈、ミス後48時間以内の再開を重視します。</p>
+      <section class="review-panel">
+        <p class="panel-kicker">Habit state</p>
+        <div>
+          ${state.habits.length > 0 ? state.habits.map(renderHabitScore).join("") : "<p class=\"muted-text\">習慣を保存すると表示されます。</p>"}
+        </div>
+      </section>
+
+      <section class="review-panel">
+        <p class="panel-kicker">Next tune</p>
+        <ul class="list">
+          ${suggestions.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ul>
+      </section>
+    </div>
+  `;
+}
+
+function renderHabitScore(habit) {
+  const today = toISODate();
+  const habitStats = calculateStats([habit], state.logs, {
+    endIso: today,
+    dayCount: 30,
+    includeTodayAsEligible: false,
+  });
+  const difficulty = assessHabitDifficulty(habit);
+  const lifecycle = getHabitLifecycle(habit, state.logs, today);
+  return `
+    <div class="score-row">
+      <strong>${escapeHtml(habit.name)}</strong>
+      <span>${escapeHtml(lifecycle)} / 実行率${habitStats.consistencyPercent}% / 難易度${difficulty.label}</span>
     </div>
   `;
 }
@@ -593,8 +582,9 @@ function renderSettings() {
 function saveHabitFromForm() {
   const formData = new FormData(habitForm);
   const id = formData.get("habitId") || "";
+  const current = id ? state.habits.find((habit) => habit.id === id) : null;
   const input = {
-    id: id || `habit-${crypto.randomUUID ? crypto.randomUUID() : Date.now()}`,
+    id: id || `habit-${globalThis.crypto?.randomUUID?.() || Date.now()}`,
     name: formData.get("name"),
     why: formData.get("why"),
     category: formData.get("category"),
@@ -604,14 +594,15 @@ function saveHabitFromForm() {
     fallback: formData.get("fallback"),
     reminderWindow: formData.get("reminderWindow"),
     days: [...selectedDays],
-    createdAt: id ? state.habits.find((habit) => habit.id === id)?.createdAt : toISODate(),
-    paused: id ? state.habits.find((habit) => habit.id === id)?.paused : false,
-    graduated: id ? state.habits.find((habit) => habit.id === id)?.graduated : false,
+    createdAt: current?.createdAt || toISODate(),
+    paused: Boolean(current?.paused),
+    graduated: Boolean(current?.graduated),
   };
 
   const errors = validateHabitInput(input);
   if (errors.length > 0) {
     showToast(errors[0]);
+    setBuilderStep(getFirstInvalidStep(input));
     return;
   }
 
@@ -623,7 +614,7 @@ function saveHabitFromForm() {
   resetForm();
   renderAll();
   switchView("today");
-  showToast(id ? "習慣を更新しました。" : "習慣を保存しました。");
+  showToast(id ? "更新しました。" : "保存しました。");
 }
 
 function fillTemplate(index) {
@@ -644,7 +635,9 @@ function fillTemplate(index) {
   cancelEditButton.hidden = true;
   updateWeekdayButtons();
   updatePreview();
-  switchView("create");
+  setBuilderStep(0);
+  switchView("design");
+  scrollBuilderIntoView();
 }
 
 function editHabit(id) {
@@ -664,14 +657,15 @@ function editHabit(id) {
   cancelEditButton.hidden = false;
   updateWeekdayButtons();
   updatePreview();
-  switchView("create");
+  setBuilderStep(0);
+  switchView("design");
+  scrollBuilderIntoView();
 }
 
 function deleteHabit(id) {
   const habit = state.habits.find((item) => item.id === id);
   if (!habit) return;
-  const confirmed = window.confirm(`「${habit.name}」を削除します。記録も削除されます。`);
-  if (!confirmed) return;
+  if (!window.confirm(`「${habit.name}」を削除します。記録も削除されます。`)) return;
   state.habits = state.habits.filter((item) => item.id !== id);
   state.logs = state.logs.filter((log) => log.habitId !== id);
   persistAndRender();
@@ -685,7 +679,7 @@ function togglePause(id) {
     item.id === id ? { ...item, paused: !item.paused, graduated: false } : item
   ));
   persistAndRender();
-  showToast(habit.paused ? "習慣を再開しました。" : "習慣を一時停止しました。");
+  showToast(habit.paused ? "再開しました。" : "一時停止しました。");
 }
 
 function toggleGraduate(id) {
@@ -704,8 +698,35 @@ function resetForm() {
   selectedDays = new Set([1, 2, 3, 4, 5]);
   saveHabitButton.textContent = "保存";
   cancelEditButton.hidden = true;
+  setBuilderStep(0);
   updateWeekdayButtons();
   updatePreview();
+}
+
+function scrollBuilderIntoView() {
+  requestAnimationFrame(() => {
+    habitForm.scrollIntoView({ block: "start", behavior: "auto" });
+  });
+}
+
+function getFirstInvalidStep(input) {
+  if (!input.name?.trim()) return 0;
+  if (!input.targetAction?.trim()) return 1;
+  if (!input.tinyAction?.trim()) return 2;
+  if (!input.anchor?.trim()) return 3;
+  return 4;
+}
+
+function setBuilderStep(step) {
+  builderStep = Math.max(0, Math.min(BUILDER_STEP_MAX, Number.isFinite(step) ? step : 0));
+  document.querySelectorAll("[data-builder-step]").forEach((panel) => {
+    panel.classList.toggle("is-active", Number(panel.dataset.builderStep) === builderStep);
+  });
+  document.querySelectorAll("[data-builder-step-target]").forEach((button) => {
+    button.classList.toggle("is-active", Number(button.dataset.builderStepTarget) === builderStep);
+  });
+  builderPrevButton.disabled = builderStep === 0;
+  builderNextButton.disabled = builderStep === BUILDER_STEP_MAX;
 }
 
 function recordHabit(habitId, status) {
@@ -713,7 +734,6 @@ function recordHabit(habitId, status) {
   if (!habit) return;
   const today = toISODate();
   const reason = status === "missed" || status === "later" ? getSelectedReason(habitId) : "";
-  const message = buildStatusMessage(habit, status);
   const log = {
     id: `log-${habitId}-${today}`,
     habitId,
@@ -725,7 +745,7 @@ function recordHabit(habitId, status) {
   };
   state.logs = upsertLog(state.logs, log);
   persistAndRender();
-  showToast(message);
+  showToast(buildStatusMessage(habit, status));
 }
 
 function getSelectedReason(habitId) {
@@ -736,9 +756,9 @@ function getSelectedReason(habitId) {
 
 function buildStatusMessage(habit, status) {
   if (status === "done") return state.profile.gentleTone === false ? "完了しました。" : "通常版で記録しました。";
-  if (status === "tiny") return `最小版で十分です。「${habit.tinyAction}」を記録しました。`;
-  if (status === "later") return "後で戻れるように残しました。";
-  return `今日は休みにしました。次は「${habit.fallback}」。`;
+  if (status === "tiny") return `「${habit.tinyAction}」で記録しました。`;
+  if (status === "later") return "明日に回しました。";
+  return `今日は無理として記録しました。次は「${habit.fallback}」。`;
 }
 
 function updatePreview() {
@@ -755,14 +775,12 @@ function updatePreview() {
   const difficulty = assessHabitDifficulty(previewHabit);
   ifThenPreview.textContent = buildIfThen(previewHabit);
   difficultyPreview.innerHTML = `
-    <span>継続難易度: ${difficulty.label}</span>
     <div class="diagnosis-mini">
+      <span>難易度 ${difficulty.label}</span>
       <span>自動化 ${difficulty.automationScore}%</span>
-      <span>負荷 ${difficulty.loadScore}%</span>
     </div>
-    <p>${escapeHtml(difficulty.reasons.slice(0, 2).join(" "))}</p>
-    <p>${escapeHtml(difficulty.improvements[0])}</p>
   `;
+  updateDesignEditingMode();
 }
 
 function updateWeekdayButtons() {
@@ -771,11 +789,22 @@ function updateWeekdayButtons() {
   });
 }
 
+function updateDesignEditingMode() {
+  const hasDraft = Boolean(
+    document.querySelector("#habitId").value
+      || document.querySelector("#habitName").value.trim()
+      || document.querySelector("#habitTarget").value.trim()
+      || document.querySelector("#habitTiny").value.trim(),
+  );
+  document.querySelector("#screen-design").classList.toggle("is-editing", hasDraft);
+}
+
 function applyPreferences() {
   const theme = state.settings.theme || "system";
   const systemDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+  const resolvedTheme = theme === "dark" || (theme === "system" && systemDark) ? "dark" : "light";
+  document.documentElement.dataset.theme = resolvedTheme;
   document.body.classList.toggle("large-text", Boolean(state.settings.largeText));
-  document.body.classList.toggle("theme-dark", theme === "dark" || (theme === "system" && systemDark));
 }
 
 async function requestNotification() {
@@ -786,7 +815,7 @@ async function requestNotification() {
 
   const permission = await Notification.requestPermission();
   if (permission === "granted") {
-    new Notification("つづく設計", { body: "通知はアプリ起動中の確認に使えます。" });
+    new Notification("余白習慣", { body: "通知はアプリ起動中の確認に使えます。" });
     showToast("通知を確認しました。");
   } else {
     showToast("通知は許可されませんでした。");
@@ -836,14 +865,13 @@ function exportWeeklyMarkdown() {
     `- 30日間実行率: ${stats30.consistencyPercent}%`,
     `- 最小版でつないだ回数: ${stats7.totals.tiny}`,
     `- 中断後に戻れた回数: ${recoveryMetrics.recovered}`,
-    `- 平均復帰日数: ${recoveryMetrics.averageRecoveryDays ?? "未計測"}`,
     "",
     "## 未実行理由",
     ...(recoveryMetrics.topReasons.length > 0
       ? recoveryMetrics.topReasons.map((reason) => `- ${reason.label}: ${reason.count}回`)
       : ["- 記録なし"]),
     "",
-    "## 来週の改善案",
+    "## 次の調整",
     ...suggestions.map((item) => `- ${item}`),
   ];
   downloadText(`weekly-review-${today}.md`, lines.join("\n"), "text/markdown;charset=utf-8");
@@ -876,7 +904,7 @@ async function importData(event) {
       logs: Array.isArray(parsed.logs) ? parsed.logs : [],
     };
     persistAndRender();
-    showToast("データを読み込みました。");
+    showToast("読み込みました。");
   } catch {
     showToast("読み込みに失敗しました。");
   } finally {
@@ -885,8 +913,7 @@ async function importData(event) {
 }
 
 function resetData() {
-  const confirmed = window.confirm("ローカルに保存された習慣と記録をすべて削除します。");
-  if (!confirmed) return;
+  if (!window.confirm("ローカルに保存された習慣と記録をすべて削除します。")) return;
   localStorage.removeItem(STORAGE_KEY);
   state = loadState();
   resetForm();
@@ -901,13 +928,13 @@ function showToast(message) {
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => {
     toast.classList.remove("is-visible");
-  }, 2600);
+  }, 2400);
 }
 
 function formatDisplayDate(isoDate) {
   const date = new Date(`${isoDate}T00:00:00`);
   return new Intl.DateTimeFormat("ja-JP", {
-    month: "long",
+    month: "numeric",
     day: "numeric",
     weekday: "short",
   }).format(date);
@@ -925,6 +952,6 @@ function escapeHtml(value) {
 function registerServiceWorker() {
   if (!("serviceWorker" in navigator)) return;
   navigator.serviceWorker.register("./sw.js").catch(() => {
-    // PWA registration failure should not block the core tracker.
+    // Service worker registration should not block the core local-first app.
   });
 }
